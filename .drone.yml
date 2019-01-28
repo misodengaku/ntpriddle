@@ -1,0 +1,7 @@
+pipeline:
+  master:
+    image: misodengaku/gnu-arm-embedded
+    commands:
+      - arm-none-eabi-gcc -v
+      - make -j
+
