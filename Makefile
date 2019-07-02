@@ -150,7 +150,10 @@ Middlewares/Third_Party/LwIP/src/apps/mqtt/mqtt.c \
 Middlewares/Third_Party/LwIP/src/apps/sntp/sntp.c \
 Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_iwdg.c \
 Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rtc.c \
-Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rtc_ex.c
+Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_rtc_ex.c \
+Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_uart_ex.c \
+Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_exti.c \
+Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c
 
 # ASM sources
 ASM_SOURCES =  \
