@@ -74,7 +74,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
 }
 
-void UART_TickTimer()
+void UART_TickTimer(void)
 {
     UART_Buffer *rx_buffer;
 
@@ -87,7 +87,7 @@ void UART_TickTimer()
     rx_buffer = &GPS_UART_RX_BUFFER;
     if (UART_GetBufferSize(rx_buffer) < (UART_BUFFER_SIZE - 1))
     {
-        HAL_UART_Receive_IT(&huart4, &rx_buffer->data[rx_buffer->bottom], 1);
+        HAL_UART_Receive_IT(&huart6, &rx_buffer->data[rx_buffer->bottom], 1);
     }
 }
 
@@ -254,7 +254,7 @@ int16_t uart_strlen(uint8_t *data)
     return ret;
 }
 
-void UART_Init()
+void UART_Init(void)
 {
     USER_UART_RX_BUFFER.bottom = 0;
     USER_UART_RX_BUFFER.top = 0;
@@ -266,5 +266,5 @@ void UART_Init()
     GPS_UART_TX_BUFFER.top = 0;
 
     HAL_UART_Receive_IT(&huart3, &USER_UART_RX_BUFFER.data[0], 1);
-    HAL_UART_Receive_IT(&huart4, &GPS_UART_RX_BUFFER.data[0], 1);
+    HAL_UART_Receive_IT(&huart6, &GPS_UART_RX_BUFFER.data[0], 1);
 }

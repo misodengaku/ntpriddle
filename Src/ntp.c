@@ -129,6 +129,8 @@ void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *a
         memcpy(np->payload, &nm, sizeof(nm));
         udp_sendto(pcb, np, addr, port);
         pbuf_free(np);
+        
+        HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, !HAL_GPIO_ReadPin(LED_2_GPIO_Port, LED_2_Pin));
     }
 
     pbuf_free(p);

@@ -12,8 +12,15 @@ extern "C"
     void gps_loop();
     void nmea_dump_info();
     void sync_gps_rtc_time();
+    struct tm get_tm();
     time_t get_unixtime();
+    void timer_autoreload_handler();
+    void gps_pps_handler();
 
+    enum ClockSyncMode {
+        NO_SYNC,
+        GNSS_SYNC
+    };
 #ifdef __cplusplus
 }
 #endif

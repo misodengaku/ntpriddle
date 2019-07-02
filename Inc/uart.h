@@ -8,9 +8,9 @@
 #define USER_UART USART3
 #define USER_UART_RX_BUFFER uart3_rx_buf
 #define USER_UART_TX_BUFFER uart3_tx_buf
-#define GPS_UART UART4
-#define GPS_UART_RX_BUFFER uart4_rx_buf
-#define GPS_UART_TX_BUFFER uart4_tx_buf
+#define GPS_UART USART6
+#define GPS_UART_RX_BUFFER uart6_rx_buf
+#define GPS_UART_TX_BUFFER uart6_tx_buf
 
 #define USER_UART_Read(d, s) UART_Read(&uart3_rx_buf, &huart3, d, s)
 #define USER_UART_ReadLine(d, s) UART_ReadLine(&uart3_rx_buf, &huart3, d, s, false)
@@ -21,14 +21,14 @@
 #define USER_UART_GetBufferSize_Tx() UART_GetBufferSize(&uart3_tx_buf)
 #define USER_UART_GetBufferSize_Rx() UART_GetBufferSize(&uart3_rx_buf)
 
-#define GPS_UART_Read(d, s) UART_Read(&uart4_rx_buf, &huart4, d, s)
-#define GPS_UART_ReadLine(d, s, l) UART_ReadLine(&uart4_rx_buf, &huart4, d, s, l)
-#define GPS_UART_Write(d, s) UART_Send(&uart4_tx_buf, &huart4, d, s)
-#define GPS_UART_Print(s) UART_Send(&uart4_tx_buf, &huart4, (uint8_t *)s, uart_strlen((uint8_t *)s))
-#define GPS_UART_ReadByte() UART_ReadByte(&uart4_rx_buf, &huart4)
-#define GPS_UART_WriteByte(c) UART_SendByte(&uart4_tx_buf, &huart4, c)
-#define GPS_UART_GetBufferSize_Tx() UART_GetBufferSize(&uart4_tx_buf)
-#define GPS_UART_GetBufferSize_Rx() UART_GetBufferSize(&uart4_rx_buf)
+#define GPS_UART_Read(d, s) UART_Read(&uart6_rx_buf, &huart6, d, s)
+#define GPS_UART_ReadLine(d, s, l) UART_ReadLine(&uart6_rx_buf, &huart6, d, s, l)
+#define GPS_UART_Write(d, s) UART_Send(&uart6_tx_buf, &huart6, d, s)
+#define GPS_UART_Print(s) UART_Send(&uart6_tx_buf, &huart6, (uint8_t *)s, uart_strlen((uint8_t *)s))
+#define GPS_UART_ReadByte() UART_ReadByte(&uart6_rx_buf, &huart6)
+#define GPS_UART_WriteByte(c) UART_SendByte(&uart6_tx_buf, &huart6, c)
+#define GPS_UART_GetBufferSize_Tx() UART_GetBufferSize(&uart6_tx_buf)
+#define GPS_UART_GetBufferSize_Rx() UART_GetBufferSize(&uart6_rx_buf)
 
 #ifdef __cplusplus
 extern "C"
@@ -44,13 +44,13 @@ extern "C"
 
     extern UART_Buffer uart3_rx_buf;
     extern UART_Buffer uart3_tx_buf;
-    extern UART_Buffer uart4_rx_buf;
-    extern UART_Buffer uart4_tx_buf;
+    extern UART_Buffer uart6_rx_buf;
+    extern UART_Buffer uart6_tx_buf;
     extern UART_HandleTypeDef huart3;
-    extern UART_HandleTypeDef huart4;
+    extern UART_HandleTypeDef huart6;
 
-    void UART_Init();
-    void UART_TickTimer();
+    void UART_Init(void);
+    void UART_TickTimer(void);
     int16_t UART_GetBufferSize(UART_Buffer *buf);
     int16_t UART_Send(UART_Buffer *buf, UART_HandleTypeDef *huart, uint8_t *data, uint16_t size);
     int16_t UART_Read(UART_Buffer *buf, UART_HandleTypeDef *huart, uint8_t *data, uint16_t size);

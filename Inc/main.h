@@ -76,17 +76,25 @@ extern "C"
     /* Exported functions prototypes ---------------------------------------------*/
     void Error_Handler(void);
 
-    /* USER CODE BEGIN EFP */
+/* USER CODE BEGIN EFP */
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED2_Pin GPIO_PIN_0
-#define LED2_GPIO_Port GPIOB
-#define GPS_UART_RX_Pin GPIO_PIN_11
-#define GPS_UART_RX_GPIO_Port GPIOC
-#define GPS_PPS_IN_Pin GPIO_PIN_2
-#define GPS_PPS_IN_GPIO_Port GPIOD
-#define GPS_PPS_IN_EXTI_IRQn EXTI2_IRQn
+#define LED_3_Pin GPIO_PIN_12
+#define LED_3_GPIO_Port GPIOF
+#define LED_2_Pin GPIO_PIN_13
+#define LED_2_GPIO_Port GPIOF
+#define LED_LCD_Pin GPIO_PIN_14
+#define LED_LCD_GPIO_Port GPIOF
+#define LED_1_Pin GPIO_PIN_9
+#define LED_1_GPIO_Port GPIOE
+#define GPS_PPS_IN_Pin GPIO_PIN_11
+#define GPS_PPS_IN_GPIO_Port GPIOE
+#define GPS_PPS_IN_EXTI_IRQn EXTI15_10_IRQn
+#define GPS_UART_RX_Pin GPIO_PIN_9
+#define GPS_UART_RX_GPIO_Port GPIOG
+#define GPS_UART_RXG14_Pin GPIO_PIN_14
+#define GPS_UART_RXG14_GPIO_Port GPIOG
     /* USER CODE BEGIN Private defines */
 
     /* USER CODE END Private defines */

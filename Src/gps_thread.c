@@ -1,6 +1,7 @@
 #include "gps_thread.h"
 #include "uart.h"
 #include "timecount.h"
+#include "aqm1602.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -10,19 +11,22 @@
 #define MAXTOKEN 32
 
 extern osSemaphoreId GPSDataSemaphoreHandle;
+extern osSemaphoreId LCDSyncSemaphoreHandle;
 extern TIM_HandleTypeDef htim3;
 extern RTC_HandleTypeDef hrtc;
 extern bool is_gps_fixed;
+extern bool lcd_refresh_flag;
 
 char nmea_line[NMEA_BUF_LEN];
 char dump_info_buf[1024];
+TimeCount tcount;
+extern uint8_t clock_sync_mode;
 
 extern uint8_t satellite_count;
 extern double latitude;
 extern double longitude;
 extern float speed;
 extern float move_direction;
-TimeCount tcount;
 #if 0
 extern uint16_t year;
 extern uint8_t month;
@@ -425,7 +429,7 @@ int split(char *str, const char delim, char *token[], int max_item)
     return cnt;
 }
 
-time_t get_unixtime()
+struct tm get_tm()
 {
     struct tm t;
     t.tm_sec = tcount.sec;
@@ -435,6 +439,12 @@ time_t get_unixtime()
     t.tm_mon = tcount.month - 1;
     t.tm_year = tcount.year - 1900;
 
+    return t;
+}
+
+time_t get_unixtime()
+{
+    struct tm t = get_tm();
     return mktime(&t);
 }
 
@@ -473,6 +483,21 @@ void sync_gps_rtc_time()
     is_gps_fixed = true;
 }
 
+void timer_autoreload_handler()
+{
+    __disable_irq();
+    // htim3.Instance->CNT
+    printf("gps dead %d\n");
+    clock_sync_mode = NO_SYNC;
+    
+    tick(&tcount);
+    if (osSemaphoreWait(LCDSyncSemaphoreHandle, 0) == osOK)
+    {
+        lcd_refresh_flag = true;
+        osSemaphoreRelease(LCDSyncSemaphoreHandle);
+    }
+    __enable_irq();
+}
 
 // EXTIから呼ばれるやつ
 void gps_pps_handler()
@@ -482,6 +507,9 @@ void gps_pps_handler()
     __disable_irq();
     // msec_count = htim3.Instance->CNT;
     HAL_TIM_Base_Stop(&htim3);
+    
+    clock_sync_mode = GNSS_SYNC;
+
     htim3.Instance->CNT = 0;
     HAL_TIM_Base_Start_IT(&htim3);
     tick(&tcount);
@@ -497,6 +525,13 @@ void gps_pps_handler()
         {
             HAL_UART_Transmit(&huart3, (uint8_t *)"!!! PPS incoming !!!\n", 21, 1000);
         }
+
+    }
+    if (osSemaphoreWait(LCDSyncSemaphoreHandle, 0) == osOK)
+    {
+        lcd_refresh_flag = true;
+        osSemaphoreRelease(LCDSyncSemaphoreHandle);
     }
     __enable_irq();
+    HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, !HAL_GPIO_ReadPin(LED_1_GPIO_Port, LED_1_Pin));
 }

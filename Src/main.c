@@ -51,6 +51,7 @@
 
 #include "lwip/api.h"
 #include "gps_thread.h"
+#include "aqm1602.h"
 #include "uart.h"
 #include "ntp.h"
 #include "timecount.h"
@@ -72,6 +73,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+I2C_HandleTypeDef hi2c1;
+
 IWDG_HandleTypeDef hiwdg;
 
 RTC_HandleTypeDef hrtc;
@@ -79,16 +82,18 @@ RTC_HandleTypeDef hrtc;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
-UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart3;
-DMA_HandleTypeDef hdma_uart4_rx;
-DMA_HandleTypeDef hdma_uart4_tx;
+UART_HandleTypeDef huart6;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
+DMA_HandleTypeDef hdma_usart6_rx;
+DMA_HandleTypeDef hdma_usart6_tx;
 
 osThreadId defaultTaskHandle;
 osThreadId udpRxTaskHandle;
+osThreadId lcdClockTaskHandle;
 osSemaphoreId GPSDataSemaphoreHandle;
+osSemaphoreId LCDSyncSemaphoreHandle;
 /* USER CODE BEGIN PV */
 bool is_gps_fixed = false;
 uint64_t gps_sync_time = 0;
@@ -97,6 +102,8 @@ double latitude = 0;
 double longitude = 0;
 float speed = 0;
 float move_direction = 0;
+bool lcd_refresh_flag = false;
+uint8_t clock_sync_mode = NO_SYNC;
 
 uint64_t sec_count = 0;
 time_t last_locked;
@@ -108,12 +115,14 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_UART4_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_USART6_UART_Init(void);
 void StartDefaultTask(void const *argument);
 void StartTask02(void const *argument);
+void LCDClockTask(void const *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -161,10 +170,11 @@ int main(void)
     MX_DMA_Init();
     MX_USART3_UART_Init();
     MX_TIM2_Init();
-    MX_UART4_Init();
     MX_IWDG_Init();
     MX_RTC_Init();
     MX_TIM3_Init();
+    MX_I2C1_Init();
+    MX_USART6_UART_Init();
     /* USER CODE BEGIN 2 */
     /* USER CODE END 2 */
 
@@ -177,6 +187,10 @@ int main(void)
     osSemaphoreDef(GPSDataSemaphore);
     GPSDataSemaphoreHandle = osSemaphoreCreate(osSemaphore(GPSDataSemaphore), 1);
 
+    /* definition and creation of LCDSyncSemaphore */
+    osSemaphoreDef(LCDSyncSemaphore);
+    LCDSyncSemaphoreHandle = osSemaphoreCreate(osSemaphore(LCDSyncSemaphore), 1);
+
     /* USER CODE BEGIN RTOS_SEMAPHORES */
     /* add semaphores, ... */
     /* USER CODE END RTOS_SEMAPHORES */
@@ -184,6 +198,10 @@ int main(void)
     /* USER CODE BEGIN RTOS_TIMERS */
     /* start timers, add new ones, ... */
     /* USER CODE END RTOS_TIMERS */
+
+    /* USER CODE BEGIN RTOS_QUEUES */
+    /* add queues, ... */
+    /* USER CODE END RTOS_QUEUES */
 
     /* Create the thread(s) */
     /* definition and creation of defaultTask */
@@ -194,13 +212,13 @@ int main(void)
     osThreadDef(udpRxTask, StartTask02, osPriorityIdle, 0, 512);
     udpRxTaskHandle = osThreadCreate(osThread(udpRxTask), NULL);
 
+    /* definition and creation of lcdClockTask */
+    osThreadDef(lcdClockTask, LCDClockTask, osPriorityNormal, 0, 256);
+    lcdClockTaskHandle = osThreadCreate(osThread(lcdClockTask), NULL);
+
     /* USER CODE BEGIN RTOS_THREADS */
     /* add threads, ... */
     /* USER CODE END RTOS_THREADS */
-
-    /* USER CODE BEGIN RTOS_QUEUES */
-    /* add queues, ... */
-    /* USER CODE END RTOS_QUEUES */
 
     /* Start scheduler */
     osKernelStart();
@@ -229,15 +247,15 @@ void SystemClock_Config(void)
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
     RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
-    /**Configure LSE Drive Capability 
+    /** Configure LSE Drive Capability 
   */
     HAL_PWR_EnableBkUpAccess();
     __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
-    /**Configure the main internal regulator output voltage 
+    /** Configure the main internal regulator output voltage 
   */
     __HAL_RCC_PWR_CLK_ENABLE();
     __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /** Initializes the CPU, AHB and APB busses clocks 
   */
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI | RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_LSE;
     RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
@@ -253,13 +271,13 @@ void SystemClock_Config(void)
     {
         Error_Handler();
     }
-    /**Activate the Over-Drive mode 
+    /** Activate the Over-Drive mode 
   */
     if (HAL_PWREx_EnableOverDrive() != HAL_OK)
     {
         Error_Handler();
     }
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /** Initializes the CPU, AHB and APB busses clocks 
   */
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -271,14 +289,60 @@ void SystemClock_Config(void)
     {
         Error_Handler();
     }
-    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC | RCC_PERIPHCLK_USART3 | RCC_PERIPHCLK_UART4;
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC | RCC_PERIPHCLK_USART3 | RCC_PERIPHCLK_USART6 | RCC_PERIPHCLK_I2C1;
     PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
     PeriphClkInitStruct.Usart3ClockSelection = RCC_USART3CLKSOURCE_PCLK1;
-    PeriphClkInitStruct.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
+    PeriphClkInitStruct.Usart6ClockSelection = RCC_USART6CLKSOURCE_PCLK2;
+    PeriphClkInitStruct.I2c1ClockSelection = RCC_I2C1CLKSOURCE_PCLK1;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
     {
         Error_Handler();
     }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+    /* USER CODE BEGIN I2C1_Init 0 */
+
+    /* USER CODE END I2C1_Init 0 */
+
+    /* USER CODE BEGIN I2C1_Init 1 */
+
+    /* USER CODE END I2C1_Init 1 */
+    hi2c1.Instance = I2C1;
+    hi2c1.Init.Timing = 0x00C0EAFF;
+    hi2c1.Init.OwnAddress1 = 0;
+    hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+    hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+    hi2c1.Init.OwnAddress2 = 0;
+    hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+    hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+    hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+    if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /** Configure Analogue filter 
+  */
+    if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /** Configure Digital filter 
+  */
+    if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /* USER CODE BEGIN I2C1_Init 2 */
+
+    /* USER CODE END I2C1_Init 2 */
 }
 
 /**
@@ -327,7 +391,7 @@ static void MX_RTC_Init(void)
     /* USER CODE BEGIN RTC_Init 1 */
 
     /* USER CODE END RTC_Init 1 */
-    /**Initialize RTC Only 
+    /** Initialize RTC Only 
   */
     hrtc.Instance = RTC;
     hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
@@ -345,7 +409,7 @@ static void MX_RTC_Init(void)
 
     /* USER CODE END Check_RTC_BKUP */
 
-    /**Initialize RTC and set the Time and Date 
+    /** Initialize RTC and set the Time and Date 
   */
     sTime.Hours = 0x0;
     sTime.Minutes = 0x0;
@@ -360,7 +424,6 @@ static void MX_RTC_Init(void)
     sDate.Month = RTC_MONTH_JANUARY;
     sDate.Date = 0x1;
     sDate.Year = 0x0;
-
     if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
     {
         Error_Handler();
@@ -403,7 +466,7 @@ static void MX_TIM2_Init(void)
     sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_NONINVERTED;
     sSlaveConfig.TriggerPrescaler = TIM_TRIGGERPRESCALER_DIV1;
     sSlaveConfig.TriggerFilter = 0;
-    if (HAL_TIM_SlaveConfigSynchronization(&htim2, &sSlaveConfig) != HAL_OK)
+    if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
     {
         Error_Handler();
     }
@@ -463,40 +526,6 @@ static void MX_TIM3_Init(void)
 }
 
 /**
-  * @brief UART4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_UART4_Init(void)
-{
-
-    /* USER CODE BEGIN UART4_Init 0 */
-
-    /* USER CODE END UART4_Init 0 */
-
-    /* USER CODE BEGIN UART4_Init 1 */
-
-    /* USER CODE END UART4_Init 1 */
-    huart4.Instance = UART4;
-    huart4.Init.BaudRate = 9600;
-    huart4.Init.WordLength = UART_WORDLENGTH_8B;
-    huart4.Init.StopBits = UART_STOPBITS_1;
-    huart4.Init.Parity = UART_PARITY_NONE;
-    huart4.Init.Mode = UART_MODE_TX_RX;
-    huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-    huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-    huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-    if (HAL_UART_Init(&huart4) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN UART4_Init 2 */
-
-    /* USER CODE END UART4_Init 2 */
-}
-
-/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -530,6 +559,40 @@ static void MX_USART3_UART_Init(void)
     /* USER CODE END USART3_Init 2 */
 }
 
+/**
+  * @brief USART6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART6_UART_Init(void)
+{
+
+    /* USER CODE BEGIN USART6_Init 0 */
+
+    /* USER CODE END USART6_Init 0 */
+
+    /* USER CODE BEGIN USART6_Init 1 */
+
+    /* USER CODE END USART6_Init 1 */
+    huart6.Instance = USART6;
+    huart6.Init.BaudRate = 9600;
+    huart6.Init.WordLength = UART_WORDLENGTH_8B;
+    huart6.Init.StopBits = UART_STOPBITS_1;
+    huart6.Init.Parity = UART_PARITY_NONE;
+    huart6.Init.Mode = UART_MODE_TX_RX;
+    huart6.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart6.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart6.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart6.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+    if (HAL_UART_Init(&huart6) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /* USER CODE BEGIN USART6_Init 2 */
+
+    /* USER CODE END USART6_Init 2 */
+}
+
 /** 
   * Enable DMA controller clock
   */
@@ -537,20 +600,21 @@ static void MX_DMA_Init(void)
 {
     /* DMA controller clock enable */
     __HAL_RCC_DMA1_CLK_ENABLE();
+    __HAL_RCC_DMA2_CLK_ENABLE();
 
     /* DMA interrupt init */
     /* DMA1_Stream1_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
-    /* DMA1_Stream2_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
     /* DMA1_Stream3_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-    /* DMA1_Stream4_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+    /* DMA2_Stream1_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+    /* DMA2_Stream6_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DMA2_Stream6_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream6_IRQn);
 }
 
 /**
@@ -566,19 +630,31 @@ static void MX_GPIO_Init(void)
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOH_CLK_ENABLE();
     __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
     __HAL_RCC_GPIOG_CLK_ENABLE();
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOF, LED_3_Pin | LED_2_Pin | LED_LCD_Pin, GPIO_PIN_RESET);
 
-    /*Configure GPIO pin : LED2_Pin */
-    GPIO_InitStruct.Pin = LED2_Pin;
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_RESET);
+
+    /*Configure GPIO pins : LED_3_Pin LED_2_Pin LED_LCD_Pin */
+    GPIO_InitStruct.Pin = LED_3_Pin | LED_2_Pin | LED_LCD_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(LED2_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+    /*Configure GPIO pin : LED_1_Pin */
+    GPIO_InitStruct.Pin = LED_1_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(LED_1_GPIO_Port, &GPIO_InitStruct);
 
     /*Configure GPIO pin : GPS_PPS_IN_Pin */
     GPIO_InitStruct.Pin = GPS_PPS_IN_Pin;
@@ -587,8 +663,8 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_Init(GPS_PPS_IN_GPIO_Port, &GPIO_InitStruct);
 
     /* EXTI interrupt init*/
-    HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+    HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
 /* USER CODE BEGIN 4 */
@@ -608,7 +684,9 @@ void StartDefaultTask(void const *argument)
 
     /* USER CODE BEGIN 5 */
     HAL_UART_Transmit(&huart3, (uint8_t *)"task start\n", 11, 1000);
+    lcd_led_set(1);
     ntp_start_listen();
+
     for (;;)
     {
         HAL_IWDG_Refresh(&hiwdg);
@@ -630,6 +708,72 @@ void StartTask02(void const *argument)
     /* USER CODE BEGIN StartTask02 */
     gps_loop();
     /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_LCDClockTask */
+/**
+* @brief Function implementing the lcdClockTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_LCDClockTask */
+void LCDClockTask(void const *argument)
+{
+    /* USER CODE BEGIN LCDClockTask */
+    /* Infinite loop */
+    int lcd_refresh_cnt = 0;
+    uint8_t last_sync_mode = 255;
+
+    
+    char lcd_buf[64];
+    struct tm utc_tm;
+    lcd_init();
+    lcd_clear();
+    lcd_println("GNSS WAITING");
+    lcd_move_cursor(0x40);
+    lcd_println("YYMMDD HH:MM:SS");
+    // gmtime_r(&last_locked, &utc_tm);
+    // utc_tm = get_tm();
+    // strftime(lcd_buf, 16, "%y%m%d %H:%M:%S", &utc_tm);
+    osSemaphoreRelease(LCDSyncSemaphoreHandle);
+    printf("ok\n");
+
+
+    for (;;)
+    {
+        osDelay(10);
+
+        if (!lcd_refresh_flag)
+        {
+            continue;
+        }
+        if (osSemaphoreWait(LCDSyncSemaphoreHandle, 10) == osOK)
+        {
+            lcd_refresh_flag = false;
+            osSemaphoreRelease(LCDSyncSemaphoreHandle);
+        }
+
+        lcd_clear();
+        if (last_sync_mode != clock_sync_mode)
+        {
+            lcd_refresh_cnt = 0;
+            last_sync_mode = clock_sync_mode;
+        }
+        if (clock_sync_mode == NO_SYNC)
+        {
+            sprintf(lcd_buf, "INTERNAL %d", lcd_refresh_cnt);
+        } else {
+            sprintf(lcd_buf, "GNSS %d", lcd_refresh_cnt);
+        }
+        lcd_println(lcd_buf);
+        lcd_move_cursor(0x40);
+        // gmtime_r(&last_locked, &utc_tm);
+        utc_tm = get_tm();
+        strftime(lcd_buf, 16, "%y%m%d %H:%M:%S", &utc_tm);
+        lcd_println(lcd_buf);
+        lcd_refresh_cnt++;
+    }
+    /* USER CODE END LCDClockTask */
 }
 
 /**
